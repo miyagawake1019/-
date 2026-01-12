@@ -42,24 +42,15 @@ function init() {
     // Controls
     controls = new PointerLockControls(camera, document.body);
 
-    const instructions = document.getElementById('instructions');
-
     document.addEventListener('keydown', function (event) {
         if (event.code === 'Enter') {
             controls.lock();
         }
     });
 
-    instructions.addEventListener('click', function () {
+    // Lock on any click
+    document.addEventListener('click', function () {
         controls.lock();
-    });
-
-    controls.addEventListener('lock', function () {
-        instructions.style.display = 'none';
-    });
-
-    controls.addEventListener('unlock', function () {
-        instructions.style.display = 'block';
     });
 
     scene.add(controls.getObject());

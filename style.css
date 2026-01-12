@@ -4,21 +4,6 @@ body {
     background-color: #87CEEB; /* Sky blue */
 }
 
-#instructions {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    color: white;
-    font-family: "Hiragino Kaku Gothic ProN", "Meiryo", Arial, sans-serif;
-    pointer-events: auto;
-    cursor: pointer;
-    background: rgba(0, 0, 0, 0.5);
-    padding: 20px;
-    border-radius: 10px;
-}
-
 #crosshair {
     position: absolute;
     top: 50%;
