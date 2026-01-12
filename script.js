@@ -53,6 +53,11 @@ function init() {
         controls.lock();
     });
 
+    // Prevent context menu
+    document.addEventListener('contextmenu', function (event) {
+        event.preventDefault();
+    });
+
     scene.add(controls.getObject());
 
     // Input handling
@@ -132,8 +137,6 @@ function onWindowResize() {
 }
 
 function attack() {
-    if (!controls.isLocked) return;
-
     // Raycast from camera center
     const mouseRaycaster = new THREE.Raycaster();
     mouseRaycaster.setFromCamera(new THREE.Vector2(), camera);
@@ -150,8 +153,6 @@ function attack() {
 }
 
 function onMouseDown(event) {
-    if (!controls.isLocked) return;
-
     // Only Right Click (2) places block. Left Click (0) is disabled (Attack is Space).
     if (event.button === 2) {
         const mouseRaycaster = new THREE.Raycaster();
@@ -175,53 +176,53 @@ function animate() {
     requestAnimationFrame(animate);
 
     const time = performance.now();
+    const delta = (time - prevTime) / 1000;
 
-    if (controls.isLocked === true) {
-        const delta = (time - prevTime) / 1000;
+    // Prevent huge delta on first frame or tab switch
+    const dt = Math.min(delta, 0.1);
 
-        velocity.x -= velocity.x * 10.0 * delta;
-        velocity.z -= velocity.z * 10.0 * delta;
-        velocity.y -= 9.8 * 100.0 * delta; // Gravity
+    velocity.x -= velocity.x * 10.0 * dt;
+    velocity.z -= velocity.z * 10.0 * dt;
+    velocity.y -= 9.8 * 100.0 * dt; // Gravity
 
-        // Rotation
-        if (rotateLeft) {
-            controls.getObject().rotation.y += 2.0 * delta;
-        }
-        if (rotateRight) {
-            controls.getObject().rotation.y -= 2.0 * delta;
-        }
+    // Rotation
+    if (rotateLeft) {
+        controls.getObject().rotation.y += 2.0 * dt;
+    }
+    if (rotateRight) {
+        controls.getObject().rotation.y -= 2.0 * dt;
+    }
 
-        direction.z = Number(moveForward) - Number(moveBackward);
-        // direction.x = Number(moveRight) - Number(moveLeft); // Strafe removed
-        direction.normalize();
+    direction.z = Number(moveForward) - Number(moveBackward);
+    // direction.x = Number(moveRight) - Number(moveLeft); // Strafe removed
+    direction.normalize();
 
-        if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
-        // if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta; // Strafe removed
+    if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * dt;
+    // if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * dt; // Strafe removed
 
-        // controls.moveRight(-velocity.x * delta); // Strafe removed
-        controls.moveForward(-velocity.z * delta);
-        controls.getObject().position.y += (velocity.y * delta);
+    // controls.moveRight(-velocity.x * dt); // Strafe removed
+    controls.moveForward(-velocity.z * dt);
+    controls.getObject().position.y += (velocity.y * dt);
 
-        // Ground Check
-        raycaster.ray.origin.copy(controls.getObject().position);
-        const intersections = raycaster.intersectObjects(objects, false);
-        const onObject = intersections.length > 0;
+    // Ground Check
+    raycaster.ray.origin.copy(controls.getObject().position);
+    const intersections = raycaster.intersectObjects(objects, false);
+    const onObject = intersections.length > 0;
 
-        if (onObject) {
-            const dist = intersections[0].distance;
-            // 10 units eye height
-            if (dist <= 10 && velocity.y <= 0) {
-                velocity.y = 0;
-                canJump = true;
-                controls.getObject().position.y = intersections[0].point.y + 10;
-            }
-        }
-
-        // Fall off world check
-        if (controls.getObject().position.y < -100) {
+    if (onObject) {
+        const dist = intersections[0].distance;
+        // 10 units eye height
+        if (dist <= 10 && velocity.y <= 0) {
             velocity.y = 0;
-            controls.getObject().position.set(0, 20, 0);
+            canJump = true;
+            controls.getObject().position.y = intersections[0].point.y + 10;
         }
+    }
+
+    // Fall off world check
+    if (controls.getObject().position.y < -100) {
+        velocity.y = 0;
+        controls.getObject().position.set(0, 20, 0);
     }
 
     prevTime = time;
