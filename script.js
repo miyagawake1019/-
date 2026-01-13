@@ -5,18 +5,24 @@ let camera, scene, renderer;
 let bike, bikeGroup;
 let raycaster;
 let obstacles = [];
+let boostPads = []; // Array to store boost pad objects
 
 // Physics variables
 let speed = 0;
-let maxSpeed = 2.0;
+let maxSpeed = 3.0; // Increased base speed
 let acceleration = 0.05;
 let friction = 0.02;
 let turnSpeed = 0.05;
 let gravity = 0.8;
 let verticalVelocity = 0;
 let isGrounded = false;
-let lastSafePosition = new THREE.Vector3(0, 5, 0); // Checkpoint
+let lastSafePosition = new THREE.Vector3(0, 5, 0);
 let timeSinceLastSafe = 0;
+
+// Boost variables
+let isBoosting = false;
+let boostTimer = 0;
+let boostDuration = 2.0; // 2 seconds of boost
 
 // Input states
 let moveForward = false;
@@ -33,10 +39,10 @@ function init() {
     // Scene setup
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 0, 750);
+    scene.fog = new THREE.Fog(0x87ceeb, 0, 1000);
 
     // Camera setup
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
 
     // Lights
     const hemiLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
@@ -46,10 +52,12 @@ function init() {
     const dirLight = new THREE.DirectionalLight(0xffffff, 1);
     dirLight.position.set(50, 200, 100);
     dirLight.castShadow = true;
-    dirLight.shadow.camera.left = -50;
-    dirLight.shadow.camera.right = 50;
-    dirLight.shadow.camera.top = 50;
-    dirLight.shadow.camera.bottom = -50;
+    dirLight.shadow.camera.left = -100;
+    dirLight.shadow.camera.right = 100;
+    dirLight.shadow.camera.top = 100;
+    dirLight.shadow.camera.bottom = -100;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
 
     // Create Course
@@ -84,48 +92,41 @@ function init() {
 function createBike() {
     bikeGroup = new THREE.Group();
 
-    // Bike Model (simplified)
-    const frameGeo = new THREE.BoxGeometry(0.5, 1, 2.5);
+    // Bike Model (Kart-like width)
+    const frameGeo = new THREE.BoxGeometry(1.5, 0.5, 3);
     const frameMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
     const frame = new THREE.Mesh(frameGeo, frameMat);
     frame.castShadow = true;
+    frame.position.y = 0.5;
     bikeGroup.add(frame);
 
-    // Handlebars
-    const handleBarGeo = new THREE.CylinderGeometry(0.1, 0.1, 2, 16);
-    const handleBarMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
-    const handleBar = new THREE.Mesh(handleBarGeo, handleBarMat);
-    handleBar.rotation.z = Math.PI / 2;
-    handleBar.position.set(0, 0.5, -1);
-    handleBar.castShadow = true;
-    bikeGroup.add(handleBar);
-
-    // Wheels (visual only)
-    const wheelGeo = new THREE.CylinderGeometry(0.8, 0.8, 0.2, 32);
+    // Wheels (4 wheels for stability/kart look)
+    const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.4, 32);
     const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
 
-    const frontWheel = new THREE.Mesh(wheelGeo, wheelMat);
-    frontWheel.rotation.z = Math.PI / 2;
-    frontWheel.position.set(0, -0.5, -1.2);
-    bikeGroup.add(frontWheel);
+    const wheels = [
+        { x: -1, z: -1.2 }, { x: 1, z: -1.2 },
+        { x: -1, z: 1.2 }, { x: 1, z: 1.2 }
+    ];
 
-    const backWheel = new THREE.Mesh(wheelGeo, wheelMat);
-    backWheel.rotation.z = Math.PI / 2;
-    backWheel.position.set(0, -0.5, 1.2);
-    bikeGroup.add(backWheel);
+    wheels.forEach(pos => {
+        const w = new THREE.Mesh(wheelGeo, wheelMat);
+        w.rotation.z = Math.PI / 2;
+        w.position.set(pos.x, 0.6, pos.z);
+        w.castShadow = true;
+        bikeGroup.add(w);
+    });
 
-    // Rider (simplified box)
-    const riderGeo = new THREE.BoxGeometry(0.6, 1.5, 0.6);
+    // Rider
+    const riderGeo = new THREE.BoxGeometry(0.8, 1.2, 0.8);
     const riderMat = new THREE.MeshStandardMaterial({ color: 0x0000ff });
     const rider = new THREE.Mesh(riderGeo, riderMat);
-    rider.position.set(0, 1.2, 0);
+    rider.position.set(0, 1.6, 0);
     bikeGroup.add(rider);
 
     // Add camera to the bike group (Third Person)
-    // Position: Behind (+Z) and Up (+Y)
-    camera.position.set(0, 4, 8);
-    // Look slightly down at the bike
-    camera.lookAt(0, 1, 0);
+    camera.position.set(0, 5, 12);
+    camera.lookAt(0, 2, 0);
 
     bikeGroup.add(camera);
 
@@ -139,118 +140,118 @@ function createBike() {
 }
 
 function createCourse() {
-    obstacles = []; // Clear
+    obstacles = [];
+    boostPads = [];
 
     // Materials
-    const woodTextureColor = 0x8B4513;
-    const woodMaterial = new THREE.MeshStandardMaterial({ color: woodTextureColor });
-    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55 });
+    const roadColor = 0x333333; // Dark asphalt-ish
+    const roadMaterial = new THREE.MeshStandardMaterial({ color: roadColor });
+    const boostMaterial = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xff4400, emissiveIntensity: 0.5 }); // Orange glowing
+    const startLineMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // White line (simplified checkerboard)
+    const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55 });
 
-    // 1. Ground Plane
-    const groundGeo = new THREE.PlaneGeometry(2000, 2000);
-    const ground = new THREE.Mesh(groundGeo, groundMaterial);
+    // 1. Ground Plane (Sea/Grass)
+    const groundGeo = new THREE.PlaneGeometry(5000, 5000);
+    const ground = new THREE.Mesh(groundGeo, grassMaterial);
     ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -20; // Lower than track
     ground.receiveShadow = true;
     scene.add(ground);
-    obstacles.push(ground);
+    // obstacles.push(ground); // Don't add to obstacles if we want falling off track to count as "falling"
 
-    // 2. Continuous Course Generation
-    // We will build a path of connected segments
+    // Track Builder State
+    let currentPos = new THREE.Vector3(0, 0, 0);
+    let currentDir = new THREE.Vector3(0, 0, -1);
+    const trackWidth = 25;
 
-    let currentPos = new THREE.Vector3(0, 2, 0); // Start slightly above ground
-    let currentDir = new THREE.Vector3(0, 0, -1); // Facing North (-Z)
-
-    // Helper to add a straight segment
-    function addStraight(length, width = 8, slope = 0) {
-        // Calculate center position for the box
-        // The box origin is center, so we move half-length
+    // Helper: Add Track Segment
+    function addSegment(length, slope = 0, isBoost = false, isStart = false) {
         const segCenter = currentPos.clone().add(currentDir.clone().multiplyScalar(length / 2));
-
-        // Handle slope (vertical change)
         const dy = Math.sin(slope) * length;
         segCenter.y += dy / 2;
 
+        const mat = isStart ? startLineMaterial : (isBoost ? boostMaterial : roadMaterial);
+
         const box = createBoxRotated(
             segCenter.x, segCenter.y, segCenter.z,
-            width, 1, length,
-            woodMaterial,
-            Math.atan2(currentDir.x, currentDir.z), // Y rotation
-            -slope // X rotation (tilt up)
+            trackWidth, 2, length,
+            mat,
+            Math.atan2(currentDir.x, currentDir.z),
+            -slope
         );
 
-        // Update currentPos to the end of this segment
+        if (isBoost) boostPads.push(box);
+
         currentPos.add(currentDir.clone().multiplyScalar(length));
         currentPos.y += dy;
         return box;
     }
 
-    // Helper to turn
+    // Helper: Turn
     function turn(angleDegrees) {
         const axis = new THREE.Vector3(0, 1, 0);
         const angle = THREE.MathUtils.degToRad(angleDegrees);
         currentDir.applyAxisAngle(axis, angle);
     }
 
-    // Helper to add a gap/jump
     function addGap(length) {
         currentPos.add(currentDir.clone().multiplyScalar(length));
     }
 
-    // --- Build the Track ---
+    // --- Build The "Mario Kart" Style Track ---
 
-    // 1. Start Platform
-    createBox(0, 0, 10, 20, 2, 20, woodMaterial); // Behind start to stand on
+    // 1. Start Line
+    addSegment(20, 0, false, true); // White start line
 
-    // 2. Initial Straight
-    addStraight(40);
+    // 2. Main Straight
+    addSegment(100);
 
-    // 3. Ramp Up
-    addStraight(30, 8, 0.3); // 0.3 rad slope
+    // 3. Boost Zone
+    addSegment(30, 0, true);
 
-    // 4. Elevated Turn Left
-    addStraight(20);
+    // 4. Big Ramp Up
+    addSegment(100, 0.4); // Steep climb
+
+    // 5. Sky Turn
     turn(45);
-    addStraight(30);
-    turn(45); // Now facing West (-X)
-    addStraight(50);
+    addSegment(50);
+    turn(45);
+    addSegment(50);
 
-    // 5. Downhill Speed
+    // 6. Downhill Speed
     turn(10);
-    addStraight(60, 8, -0.4); // Down
+    addSegment(100, -0.5, true); // Boost downhill!
 
-    // 6. Jump!
-    addStraight(20, 8, 0.2); // Kicker ramp
-    addGap(15); // Gap
+    // 7. Jump over Gap
+    addSegment(20, 0.3); // Kicker
+    addGap(40);
 
-    // 7. Landing
-    addStraight(30, 12, -0.1); // Wider landing
+    // 8. Landing
+    addSegment(50, -0.1);
 
-    // 8. Winding section
-    turn(-45);
-    addStraight(30);
-    turn(-45); // Facing North again
-    addStraight(30);
-    turn(90); // East
-    addStraight(30);
-    turn(-90); // North
+    // 9. Loop-de-loop area (simulated with turns)
+    turn(-90);
+    addSegment(40);
+    turn(-90);
+    addSegment(40);
+    turn(-90);
+    addSegment(40);
+    turn(-90); // Full circle? No, just a spiral
 
-    // 9. Big Final Ramp
-    addStraight(20);
-    addStraight(50, 8, 0.5); // Steep up
+    // 10. Long Winding Road
+    addSegment(60);
+    turn(30);
+    addSegment(60);
+    turn(-60);
+    addSegment(60);
+    turn(30);
+    addSegment(60);
 
-    // 10. Top Platform
-    addStraight(20);
-}
-
-function createBox(x, y, z, w, h, d, material) {
-    const geo = new THREE.BoxGeometry(w, h, d);
-    const mesh = new THREE.Mesh(geo, material);
-    mesh.position.set(x, y + h/2, z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-    obstacles.push(mesh);
-    return mesh;
+    // 11. Final Boost to Finish (Loop back roughly to start area for visual closure, though not a real loop logic yet)
+    // To make it a real loop, we'd need precise math, but for now linear is fine as long as it's long.
+    // Let's just end it with a big platform.
+    addSegment(50, 0, true);
+    addSegment(50, 0, false, true); // Finish line visual
 }
 
 function createBoxRotated(x, y, z, w, h, d, material, rotY, rotX) {
@@ -297,18 +298,32 @@ function animate() {
     const delta = (time - prevTime) / 1000;
     const dt = Math.min(delta, 0.1);
 
+    // Boost Logic
+    let currentMaxSpeed = maxSpeed;
+    let currentAccel = acceleration;
+
+    if (isBoosting) {
+        currentMaxSpeed = maxSpeed * 2.5; // Super fast
+        currentAccel = acceleration * 3;
+        boostTimer -= dt;
+        if (boostTimer <= 0) {
+            isBoosting = false;
+        }
+    }
+
     // 1. Handle Input & Speed
     if (moveForward) {
-        speed += acceleration;
+        speed += currentAccel;
     } else if (moveBackward) {
-        speed -= acceleration;
+        speed -= currentAccel;
     } else {
         if (speed > 0) speed = Math.max(0, speed - friction);
         if (speed < 0) speed = Math.min(0, speed + friction);
     }
 
-    if (speed > maxSpeed) speed = maxSpeed;
-    if (speed < -maxSpeed / 2) speed = -maxSpeed / 2;
+    // Cap speed
+    if (speed > currentMaxSpeed) speed = currentMaxSpeed;
+    if (speed < -currentMaxSpeed / 2) speed = -currentMaxSpeed / 2;
 
     // 2. Handle Rotation
     if (speed !== 0) {
@@ -338,20 +353,15 @@ function animate() {
 
     let groundHeight = -100;
     let isOverCourse = false;
+    let groundObject = null;
 
     if (intersects.length > 0) {
-        // We might intersect multiple things (e.g., overlapping boxes).
-        // We want the highest point below us.
-        // intersects is sorted by distance, so intersects[0] is the first hit.
         groundHeight = intersects[0].point.y;
-
-        // Check if we are over the "course" (any obstacle that is not the floor, or including floor?)
-        // The user said "fall off course". If the ground is part of the "world" but not "course",
-        // we might want to differentiate. For now, anything we can stand on is safe.
+        groundObject = intersects[0].object;
         isOverCourse = true;
     }
 
-    const playerHeight = 1.0; // Distance from center of bike to bottom of wheels
+    const playerHeight = 1.0;
 
     if (bikeGroup.position.y > groundHeight + playerHeight + 0.1) {
         // Air
@@ -362,18 +372,21 @@ function animate() {
         isGrounded = true;
         verticalVelocity = Math.max(0, verticalVelocity);
         bikeGroup.position.y = groundHeight + playerHeight;
+
+        // Boost Pad Detection
+        if (boostPads.includes(groundObject)) {
+            isBoosting = true;
+            boostTimer = boostDuration;
+        }
     }
 
     bikeGroup.position.y += verticalVelocity * dt;
 
     // 5. Checkpoint Logic
     if (isGrounded && isOverCourse) {
-        // We are safely on something.
-        // Update checkpoint occasionally to avoid saving "edge" positions too aggressively
         timeSinceLastSafe += dt;
-        if (timeSinceLastSafe > 1.0) { // Save every 1 second of stability
+        if (timeSinceLastSafe > 0.5) { // Faster checkpointing
             lastSafePosition.copy(bikeGroup.position);
-            // Slightly lift it to avoid clipping on respawn
             lastSafePosition.y += 2;
             timeSinceLastSafe = 0;
         }
@@ -382,15 +395,16 @@ function animate() {
     }
 
     // 6. Respawn Logic
-    // If we fall too far below the last safe height (or absolute floor)
-    if (bikeGroup.position.y < -30) {
-        // Respawn at checkpoint
+    // If below track level (using -30 relative to simple start, but since we have high tracks,
+    // we should use a relative check or a very low kill floor.
+    // But since the ground is at -20, we should die if we touch ground or go below it.)
+    // Actually, obstacles includes ground? No, I commented that out.
+    // So if we hit y < -10 we are definitely off.
+    if (bikeGroup.position.y < -10) {
         bikeGroup.position.copy(lastSafePosition);
-
-        // Reset physics
         speed = 0;
         verticalVelocity = 0;
-        bikeGroup.rotation.set(0, bikeGroup.rotation.y, 0); // Keep facing direction, reset tilt
+        bikeGroup.rotation.set(0, bikeGroup.rotation.y, 0);
     }
 
     prevTime = time;
