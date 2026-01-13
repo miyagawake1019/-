@@ -1,33 +1,40 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
-let camera, scene, renderer, controls;
-const objects = [];
+let camera, scene, renderer;
+let bike, bikeGroup;
 let raycaster;
+let obstacles = [];
 
+// Physics variables
+let speed = 0;
+let maxSpeed = 2.0;
+let acceleration = 0.05;
+let friction = 0.02;
+let turnSpeed = 0.05;
+let gravity = 0.8;
+let verticalVelocity = 0;
+let isGrounded = false;
+
+// Input states
 let moveForward = false;
 let moveBackward = false;
 let rotateLeft = false;
 let rotateRight = false;
-let canJump = false;
 
 let prevTime = performance.now();
-const velocity = new THREE.Vector3();
-const direction = new THREE.Vector3();
 
 init();
 animate();
 
 function init() {
-
-    // Camera setup
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
-    camera.position.y = 20;
-
     // Scene setup
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
     scene.fog = new THREE.Fog(0x87ceeb, 0, 750);
+
+    // Camera setup
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
     // Lights
     const hemiLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
@@ -37,107 +44,32 @@ function init() {
     const dirLight = new THREE.DirectionalLight(0xffffff, 1);
     dirLight.position.set(50, 200, 100);
     dirLight.castShadow = true;
+    dirLight.shadow.camera.left = -50;
+    dirLight.shadow.camera.right = 50;
+    dirLight.shadow.camera.top = 50;
+    dirLight.shadow.camera.bottom = -50;
     scene.add(dirLight);
 
-    // Controls
-    controls = new PointerLockControls(camera, document.body);
+    // Create Course
+    createCourse();
 
+    // Create Bike (Player)
+    createBike();
+
+    // Controls Overlay Logic
     const instructions = document.getElementById('instructions');
 
-    document.addEventListener('keydown', function (event) {
-        if (event.code === 'Enter') {
-            controls.lock();
-        }
-    });
-
-    // Lock on any click
+    // We use a simple click to "start" (hide instructions),
+    // but we don't strictly need PointerLock for steering since we use keys.
+    // However, hiding the cursor is nice.
     document.addEventListener('click', function () {
-        controls.lock();
-    });
-
-    controls.addEventListener('lock', function () {
         instructions.style.display = 'none';
+        document.body.requestPointerLock();
     });
-
-    controls.addEventListener('unlock', function () {
-        instructions.style.display = 'block';
-    });
-
-    // Auto-start after 1 second
-    setTimeout(() => {
-        instructions.style.display = 'none';
-        // Try to lock (will fail without gesture, but fulfills "start" visual requirement)
-        try {
-            controls.lock();
-        } catch (e) {
-            console.log("Auto-lock prevented by browser security policy. Gameplay is enabled via keyboard.");
-        }
-    }, 1000);
-
-    // Prevent context menu
-    document.addEventListener('contextmenu', function (event) {
-        event.preventDefault();
-    });
-
-    scene.add(controls.getObject());
 
     // Input handling
-    const onKeyDown = function (event) {
-        switch (event.code) {
-            case 'ArrowUp':
-            case 'KeyW': moveForward = true; break;
-            case 'ArrowLeft':
-            case 'KeyA': rotateLeft = true; break;
-            case 'ArrowDown':
-            case 'KeyS': moveBackward = true; break;
-            case 'ArrowRight':
-            case 'KeyD': rotateRight = true; break;
-            case 'Space':
-                attack();
-                break;
-        }
-
-        // Jump Check: Up Arrow + Down Arrow (Simultaneous)
-        if (moveForward && moveBackward && canJump) {
-            velocity.y += 350;
-            canJump = false;
-        }
-    };
-
-    const onKeyUp = function (event) {
-        switch (event.code) {
-            case 'ArrowUp':
-            case 'KeyW': moveForward = false; break;
-            case 'ArrowLeft':
-            case 'KeyA': rotateLeft = false; break;
-            case 'ArrowDown':
-            case 'KeyS': moveBackward = false; break;
-            case 'ArrowRight':
-            case 'KeyD': rotateRight = false; break;
-        }
-    };
-
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
-
-    // World Generation
-    const boxGeometry = new THREE.BoxGeometry(5, 5, 5);
-    const boxMaterial = new THREE.MeshLambertMaterial({ color: 0x55aa55 }); // Grass
-    const stoneMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 }); // Stone
-
-    // Floor
-    for (let x = -20; x < 20; x++) {
-        for (let z = -20; z < 20; z++) {
-            const material = Math.random() > 0.9 ? stoneMaterial : boxMaterial;
-            const box = new THREE.Mesh(boxGeometry, material);
-            box.position.set(x * 5, 2.5, z * 5);
-            scene.add(box);
-            objects.push(box);
-        }
-    }
-
-    // Raycaster for physics
-    raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 10);
 
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -146,9 +78,141 @@ function init() {
     renderer.shadowMap.enabled = true;
     document.body.appendChild(renderer.domElement);
 
-    // Event listeners
+    // Resize handler
     window.addEventListener('resize', onWindowResize);
-    document.addEventListener('mousedown', onMouseDown);
+}
+
+function createBike() {
+    bikeGroup = new THREE.Group();
+
+    // Simple visual representation of handlebars
+    const handleBarGeo = new THREE.CylinderGeometry(0.1, 0.1, 4, 16);
+    const handleBarMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+    const handleBar = new THREE.Mesh(handleBarGeo, handleBarMat);
+    handleBar.rotation.z = Math.PI / 2;
+    handleBar.position.set(0, -0.5, -1.5); // Position relative to camera
+    handleBar.castShadow = true;
+
+    // Stem
+    const stemGeo = new THREE.BoxGeometry(0.2, 0.2, 1);
+    const stem = new THREE.Mesh(stemGeo, handleBarMat);
+    stem.position.set(0, -0.6, -1);
+
+    bikeGroup.add(handleBar);
+    bikeGroup.add(stem);
+
+    // Add camera to the bike group so it follows
+    bikeGroup.add(camera);
+
+    // Start position
+    bikeGroup.position.set(0, 5, 0);
+
+    scene.add(bikeGroup);
+
+    // Raycaster for ground detection
+    raycaster = new THREE.Raycaster();
+}
+
+function createCourse() {
+    // Materials
+    const woodTextureColor = 0x8B4513;
+    const woodMaterial = new THREE.MeshStandardMaterial({ color: woodTextureColor });
+    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55 }); // Grass Green
+
+    // 1. Ground Plane
+    const groundGeo = new THREE.PlaneGeometry(2000, 2000);
+    const ground = new THREE.Mesh(groundGeo, groundMaterial);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+    obstacles.push(ground);
+
+    // 2. Wooden Ramps and Platforms
+
+    // Starting Platform
+    createBox(0, 0, 0, 20, 1, 20, woodMaterial);
+
+    // Ramp 1
+    createRamp(0, 0, -30, 10, 20, 0.3, woodMaterial);
+
+    // Elevated Path
+    createBox(0, 5.8, -70, 10, 1, 60, woodMaterial);
+
+    // Big Jump Ramp (The "Big One")
+    // Positioned at the end of the elevated path
+    createRamp(0, 5.8, -110, 10, 30, 0.5, woodMaterial);
+
+    // Landing Zone (Far away)
+    createBox(0, 2, -180, 30, 2, 50, woodMaterial);
+
+    // Some random wooden obstacles/courses around
+    // A loop-ish track
+    for (let i = 0; i < 10; i++) {
+        const angle = (i / 10) * Math.PI * 2;
+        const radius = 80;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+
+        // Pillars
+        createBox(x, 5, z, 5, 10, 5, woodMaterial);
+
+        // Connecting planks (very rough approx)
+        if (i < 9) {
+            // This is just decoration to make it look "busy"
+        }
+    }
+
+    // Another steep ramp
+    createRamp(50, 0, 50, 8, 40, 0.6, woodMaterial);
+}
+
+function createBox(x, y, z, w, h, d, material) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(x, y + h/2, z); // pivot at bottom
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    obstacles.push(mesh);
+    return mesh;
+}
+
+function createRamp(x, y, z, width, length, slope, material) {
+    // Create a box and rotate it
+    const geo = new THREE.BoxGeometry(width, 1, length);
+    const mesh = new THREE.Mesh(geo, material);
+
+    mesh.position.set(x, y, z);
+    mesh.rotation.x = -slope; // Tilt up
+
+    // Adjust Y so the bottom edge matches y
+    // simple heuristic adjustment
+    const dy = (Math.sin(slope) * length) / 2;
+    mesh.position.y += dy;
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    obstacles.push(mesh);
+    return mesh;
+}
+
+function onKeyDown(event) {
+    switch (event.code) {
+        case 'ArrowUp': moveForward = true; break;
+        case 'ArrowDown': moveBackward = true; break;
+        case 'ArrowLeft': rotateLeft = true; break;
+        case 'ArrowRight': rotateRight = true; break;
+    }
+}
+
+function onKeyUp(event) {
+    switch (event.code) {
+        case 'ArrowUp': moveForward = false; break;
+        case 'ArrowDown': moveBackward = false; break;
+        case 'ArrowLeft': rotateLeft = false; break;
+        case 'ArrowRight': rotateRight = false; break;
+    }
 }
 
 function onWindowResize() {
@@ -157,96 +221,90 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function attack() {
-    // Raycast from camera center
-    const mouseRaycaster = new THREE.Raycaster();
-    mouseRaycaster.setFromCamera(new THREE.Vector2(), camera);
-
-    const intersects = mouseRaycaster.intersectObjects(objects);
-
-    if (intersects.length > 0) {
-        const intersect = intersects[0];
-        if (intersect.distance > 30) return;
-
-        scene.remove(intersect.object);
-        objects.splice(objects.indexOf(intersect.object), 1);
-    }
-}
-
-function onMouseDown(event) {
-    // Only Right Click (2) places block. Left Click (0) is disabled (Attack is Space).
-    if (event.button === 2) {
-        const mouseRaycaster = new THREE.Raycaster();
-        mouseRaycaster.setFromCamera(new THREE.Vector2(), camera);
-        const intersects = mouseRaycaster.intersectObjects(objects);
-
-        if (intersects.length > 0) {
-            const intersect = intersects[0];
-            if (intersect.distance > 30) return;
-
-            const voxel = new THREE.Mesh(intersect.object.geometry, intersect.object.material);
-            voxel.position.copy(intersect.point).add(intersect.face.normal);
-            voxel.position.divideScalar(5).floor().multiplyScalar(5).addScalar(2.5);
-            scene.add(voxel);
-            objects.push(voxel);
-        }
-    }
-}
-
 function animate() {
     requestAnimationFrame(animate);
 
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
+    const dt = Math.min(delta, 0.1); // Cap delta time
 
-    // Prevent huge delta on first frame or tab switch
-    const dt = Math.min(delta, 0.1);
-
-    velocity.x -= velocity.x * 10.0 * dt;
-    velocity.z -= velocity.z * 10.0 * dt;
-    velocity.y -= 9.8 * 100.0 * dt; // Gravity
-
-    // Rotation
-    if (rotateLeft) {
-        controls.getObject().rotation.y += 2.0 * dt;
-    }
-    if (rotateRight) {
-        controls.getObject().rotation.y -= 2.0 * dt;
+    // 1. Handle Input & Speed
+    if (moveForward) {
+        speed += acceleration;
+    } else if (moveBackward) {
+        speed -= acceleration;
+    } else {
+        // Friction
+        if (speed > 0) speed = Math.max(0, speed - friction);
+        if (speed < 0) speed = Math.min(0, speed + friction);
     }
 
-    direction.z = Number(moveForward) - Number(moveBackward);
-    // direction.x = Number(moveRight) - Number(moveLeft); // Strafe removed
-    direction.normalize();
+    // Cap speed
+    if (speed > maxSpeed) speed = maxSpeed;
+    if (speed < -maxSpeed / 2) speed = -maxSpeed / 2;
 
-    if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * dt;
-    // if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * dt; // Strafe removed
+    // 2. Handle Rotation
+    if (speed !== 0) { // Only turn if moving (or allow static turning? Bicycles usually need speed, but games are forgiving)
+        // Actually, in games, static turning is fine usually
+        if (rotateLeft) bikeGroup.rotation.y += turnSpeed;
+        if (rotateRight) bikeGroup.rotation.y -= turnSpeed;
 
-    // controls.moveRight(-velocity.x * dt); // Strafe removed
-    controls.moveForward(-velocity.z * dt);
-    controls.getObject().position.y += (velocity.y * dt);
-
-    // Ground Check
-    raycaster.ray.origin.copy(controls.getObject().position);
-    const intersections = raycaster.intersectObjects(objects, false);
-    const onObject = intersections.length > 0;
-
-    if (onObject) {
-        const dist = intersections[0].distance;
-        // 10 units eye height
-        if (dist <= 10 && velocity.y <= 0) {
-            velocity.y = 0;
-            canJump = true;
-            controls.getObject().position.y = intersections[0].point.y + 10;
-        }
+        // Bank angle (visual effect)
+        const targetBank = (rotateLeft ? 0.3 : (rotateRight ? -0.3 : 0));
+        bikeGroup.rotation.z = THREE.MathUtils.lerp(bikeGroup.rotation.z, targetBank, 0.1);
     }
 
-    // Fall off world check
-    if (controls.getObject().position.y < -100) {
-        velocity.y = 0;
-        controls.getObject().position.set(0, 20, 0);
+    // 3. Move Bike (Horizontal)
+    const forwardX = -Math.sin(bikeGroup.rotation.y);
+    const forwardZ = -Math.cos(bikeGroup.rotation.y);
+
+    // Propose new position
+    const nextX = bikeGroup.position.x + forwardX * speed * 60 * dt; // 60 is arbitrary scale factor
+    const nextZ = bikeGroup.position.z + forwardZ * speed * 60 * dt;
+
+    bikeGroup.position.x = nextX;
+    bikeGroup.position.z = nextZ;
+
+    // 4. Physics (Gravity & Ground Collision)
+
+    // Cast ray down from slightly above current position
+    // We lift the ray origin up to ensure we catch ramps that we are climbing
+    const rayOrigin = bikeGroup.position.clone();
+    rayOrigin.y += 5;
+
+    raycaster.set(rayOrigin, new THREE.Vector3(0, -1, 0));
+
+    const intersects = raycaster.intersectObjects(obstacles);
+
+    let groundHeight = -100; // Default fallback
+    if (intersects.length > 0) {
+        groundHeight = intersects[0].point.y;
+    }
+
+    const playerHeight = 2.0; // Height of camera/eyes from ground
+
+    if (bikeGroup.position.y > groundHeight + playerHeight + 0.1) {
+        // In air
+        verticalVelocity -= gravity * dt * 50;
+        isGrounded = false;
+    } else {
+        // On ground
+        isGrounded = true;
+        verticalVelocity = Math.max(0, verticalVelocity); // Stop falling
+
+        // Snap to ground smoothly-ish
+        bikeGroup.position.y = groundHeight + playerHeight;
+    }
+
+    bikeGroup.position.y += verticalVelocity * dt;
+
+    // Simple kill floor
+    if (bikeGroup.position.y < -50) {
+        bikeGroup.position.set(0, 5, 0);
+        speed = 0;
+        verticalVelocity = 0;
     }
 
     prevTime = time;
-
     renderer.render(scene, camera);
 }
