@@ -9,7 +9,7 @@ let boostPads = []; // Array to store boost pad objects
 
 // Physics variables
 let speed = 0;
-let maxSpeed = 3.0; // Increased base speed
+let maxSpeed = 3.0;
 let acceleration = 0.05;
 let friction = 0.02;
 let turnSpeed = 0.05;
@@ -18,11 +18,12 @@ let verticalVelocity = 0;
 let isGrounded = false;
 let lastSafePosition = new THREE.Vector3(0, 5, 0);
 let timeSinceLastSafe = 0;
+let prevGroundHeight = 0;
 
 // Boost variables
 let isBoosting = false;
 let boostTimer = 0;
-let boostDuration = 2.0; // 2 seconds of boost
+let boostDuration = 2.0;
 
 // Input states
 let moveForward = false;
@@ -36,15 +37,12 @@ init();
 animate();
 
 function init() {
-    // Scene setup
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
     scene.fog = new THREE.Fog(0x87ceeb, 0, 1000);
 
-    // Camera setup
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
 
-    // Lights
     const hemiLight = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
     hemiLight.position.set(0.5, 1, 0.75);
     scene.add(hemiLight);
@@ -60,39 +58,30 @@ function init() {
     dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
 
-    // Create Course
     createCourse();
-
-    // Create Bike (Player)
     createBike();
 
-    // Controls Overlay Logic
     const instructions = document.getElementById('instructions');
-
     document.addEventListener('click', function () {
         instructions.style.display = 'none';
         document.body.requestPointerLock();
     });
 
-    // Input handling
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
 
-    // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     document.body.appendChild(renderer.domElement);
 
-    // Resize handler
     window.addEventListener('resize', onWindowResize);
 }
 
 function createBike() {
     bikeGroup = new THREE.Group();
 
-    // Bike Model (Kart-like width)
     const frameGeo = new THREE.BoxGeometry(1.5, 0.5, 3);
     const frameMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
     const frame = new THREE.Mesh(frameGeo, frameMat);
@@ -100,7 +89,6 @@ function createBike() {
     frame.position.y = 0.5;
     bikeGroup.add(frame);
 
-    // Wheels (4 wheels for stability/kart look)
     const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.4, 32);
     const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
 
@@ -117,25 +105,19 @@ function createBike() {
         bikeGroup.add(w);
     });
 
-    // Rider
     const riderGeo = new THREE.BoxGeometry(0.8, 1.2, 0.8);
     const riderMat = new THREE.MeshStandardMaterial({ color: 0x0000ff });
     const rider = new THREE.Mesh(riderGeo, riderMat);
     rider.position.set(0, 1.6, 0);
     bikeGroup.add(rider);
 
-    // Add camera to the bike group (Third Person)
     camera.position.set(0, 5, 12);
     camera.lookAt(0, 2, 0);
 
     bikeGroup.add(camera);
-
-    // Start position
     bikeGroup.position.set(0, 5, 0);
-
     scene.add(bikeGroup);
 
-    // Raycaster for ground detection
     raycaster = new THREE.Raycaster();
 }
 
@@ -143,28 +125,23 @@ function createCourse() {
     obstacles = [];
     boostPads = [];
 
-    // Materials
-    const roadColor = 0x333333; // Dark asphalt-ish
+    const roadColor = 0x333333;
     const roadMaterial = new THREE.MeshStandardMaterial({ color: roadColor });
-    const boostMaterial = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xff4400, emissiveIntensity: 0.5 }); // Orange glowing
-    const startLineMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // White line (simplified checkerboard)
+    const boostMaterial = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xff4400, emissiveIntensity: 0.5 });
+    const startLineMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
     const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55 });
 
-    // 1. Ground Plane (Sea/Grass)
     const groundGeo = new THREE.PlaneGeometry(5000, 5000);
     const ground = new THREE.Mesh(groundGeo, grassMaterial);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -20; // Lower than track
+    ground.position.y = -20;
     ground.receiveShadow = true;
     scene.add(ground);
-    // obstacles.push(ground); // Don't add to obstacles if we want falling off track to count as "falling"
 
-    // Track Builder State
     let currentPos = new THREE.Vector3(0, 0, 0);
     let currentDir = new THREE.Vector3(0, 0, -1);
     const trackWidth = 25;
 
-    // Helper: Add Track Segment
     function addSegment(length, slope = 0, isBoost = false, isStart = false) {
         const segCenter = currentPos.clone().add(currentDir.clone().multiplyScalar(length / 2));
         const dy = Math.sin(slope) * length;
@@ -172,6 +149,9 @@ function createCourse() {
 
         const mat = isStart ? startLineMaterial : (isBoost ? boostMaterial : roadMaterial);
 
+        // Note: -slope for X rotation makes the local Z tip UP.
+        // With currentDir facing -Z (North), PI rotation Y aligns local Z to North.
+        // So the ramp goes UP towards North. Correct.
         const box = createBoxRotated(
             segCenter.x, segCenter.y, segCenter.z,
             trackWidth, 2, length,
@@ -187,7 +167,6 @@ function createCourse() {
         return box;
     }
 
-    // Helper: Turn
     function turn(angleDegrees) {
         const axis = new THREE.Vector3(0, 1, 0);
         const angle = THREE.MathUtils.degToRad(angleDegrees);
@@ -198,47 +177,37 @@ function createCourse() {
         currentPos.add(currentDir.clone().multiplyScalar(length));
     }
 
-    // --- Build The "Mario Kart" Style Track ---
-
-    // 1. Start Line
-    addSegment(20, 0, false, true); // White start line
-
-    // 2. Main Straight
+    // --- Course Design ---
+    addSegment(20, 0, false, true);
     addSegment(100);
-
-    // 3. Boost Zone
     addSegment(30, 0, true);
+    addSegment(100, 0.4);
 
-    // 4. Big Ramp Up
-    addSegment(100, 0.4); // Steep climb
-
-    // 5. Sky Turn
     turn(45);
     addSegment(50);
     turn(45);
     addSegment(50);
 
-    // 6. Downhill Speed
     turn(10);
-    addSegment(100, -0.5, true); // Boost downhill!
+    addSegment(100, -0.5, true);
 
-    // 7. Jump over Gap
-    addSegment(20, 0.3); // Kicker
-    addGap(40);
+    // Jump Section
+    // Ramp up (Kicker). Made it slightly longer and steeper for better launch feel with new physics.
+    addSegment(30, 0.4);
+    addGap(40); // The gap
 
-    // 8. Landing
+    // Landing. Started slightly lower (-2) to help catching the landing.
+    currentPos.y -= 2;
     addSegment(50, -0.1);
 
-    // 9. Loop-de-loop area (simulated with turns)
     turn(-90);
     addSegment(40);
     turn(-90);
     addSegment(40);
     turn(-90);
     addSegment(40);
-    turn(-90); // Full circle? No, just a spiral
+    turn(-90);
 
-    // 10. Long Winding Road
     addSegment(60);
     turn(30);
     addSegment(60);
@@ -247,11 +216,8 @@ function createCourse() {
     turn(30);
     addSegment(60);
 
-    // 11. Final Boost to Finish (Loop back roughly to start area for visual closure, though not a real loop logic yet)
-    // To make it a real loop, we'd need precise math, but for now linear is fine as long as it's long.
-    // Let's just end it with a big platform.
     addSegment(50, 0, true);
-    addSegment(50, 0, false, true); // Finish line visual
+    addSegment(50, 0, false, true);
 }
 
 function createBoxRotated(x, y, z, w, h, d, material, rotY, rotX) {
@@ -303,7 +269,7 @@ function animate() {
     let currentAccel = acceleration;
 
     if (isBoosting) {
-        currentMaxSpeed = maxSpeed * 2.5; // Super fast
+        currentMaxSpeed = maxSpeed * 2.5;
         currentAccel = acceleration * 3;
         boostTimer -= dt;
         if (boostTimer <= 0) {
@@ -311,7 +277,6 @@ function animate() {
         }
     }
 
-    // 1. Handle Input & Speed
     if (moveForward) {
         speed += currentAccel;
     } else if (moveBackward) {
@@ -321,11 +286,9 @@ function animate() {
         if (speed < 0) speed = Math.min(0, speed + friction);
     }
 
-    // Cap speed
     if (speed > currentMaxSpeed) speed = currentMaxSpeed;
     if (speed < -currentMaxSpeed / 2) speed = -currentMaxSpeed / 2;
 
-    // 2. Handle Rotation
     if (speed !== 0) {
         if (rotateLeft) bikeGroup.rotation.y += turnSpeed;
         if (rotateRight) bikeGroup.rotation.y -= turnSpeed;
@@ -334,7 +297,6 @@ function animate() {
         bikeGroup.rotation.z = THREE.MathUtils.lerp(bikeGroup.rotation.z, targetBank, 0.1);
     }
 
-    // 3. Move Bike
     const forwardX = -Math.sin(bikeGroup.rotation.y);
     const forwardZ = -Math.cos(bikeGroup.rotation.y);
 
@@ -344,7 +306,7 @@ function animate() {
     bikeGroup.position.x = nextX;
     bikeGroup.position.z = nextZ;
 
-    // 4. Physics
+    // Physics Check
     const rayOrigin = bikeGroup.position.clone();
     rayOrigin.y += 5;
 
@@ -370,10 +332,31 @@ function animate() {
     } else {
         // Ground
         isGrounded = true;
-        verticalVelocity = Math.max(0, verticalVelocity);
-        bikeGroup.position.y = groundHeight + playerHeight;
 
-        // Boost Pad Detection
+        // Calculate vertical boost from slope
+        // If we are moving forward, check the height difference
+        if (Math.abs(speed) > 0.1) {
+             const dy = groundHeight - prevGroundHeight;
+             // If dy is positive and large, we are ramping up.
+             // Impart this as vertical velocity.
+             // We smooth it slightly or just take it if it's an upward launch?
+             // Actually, while on ground, our vertical velocity IS the rate of climb.
+             // V_y = dy / dt.
+             const climbRate = dy / dt;
+
+             // If we are climbing, set positive verticalVelocity so if we lose ground we fly.
+             if (climbRate > 0) {
+                 verticalVelocity = climbRate;
+             } else {
+                 verticalVelocity = 0; // Don't carry downward momentum into a fall unless gravity does it
+             }
+        } else {
+             verticalVelocity = 0;
+        }
+
+        bikeGroup.position.y = groundHeight + playerHeight;
+        prevGroundHeight = groundHeight;
+
         if (boostPads.includes(groundObject)) {
             isBoosting = true;
             boostTimer = boostDuration;
@@ -382,10 +365,9 @@ function animate() {
 
     bikeGroup.position.y += verticalVelocity * dt;
 
-    // 5. Checkpoint Logic
     if (isGrounded && isOverCourse) {
         timeSinceLastSafe += dt;
-        if (timeSinceLastSafe > 0.5) { // Faster checkpointing
+        if (timeSinceLastSafe > 0.5) {
             lastSafePosition.copy(bikeGroup.position);
             lastSafePosition.y += 2;
             timeSinceLastSafe = 0;
@@ -394,12 +376,6 @@ function animate() {
         timeSinceLastSafe = 0;
     }
 
-    // 6. Respawn Logic
-    // If below track level (using -30 relative to simple start, but since we have high tracks,
-    // we should use a relative check or a very low kill floor.
-    // But since the ground is at -20, we should die if we touch ground or go below it.)
-    // Actually, obstacles includes ground? No, I commented that out.
-    // So if we hit y < -10 we are definitely off.
     if (bikeGroup.position.y < -10) {
         bikeGroup.position.copy(lastSafePosition);
         speed = 0;
