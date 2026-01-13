@@ -63,7 +63,7 @@ function init() {
         instructions.style.display = 'block';
     });
 
-    // Auto-start after 2 seconds
+    // Auto-start after 1 second
     setTimeout(() => {
         instructions.style.display = 'none';
         // Try to lock (will fail without gesture, but fulfills "start" visual requirement)
@@ -72,7 +72,7 @@ function init() {
         } catch (e) {
             console.log("Auto-lock prevented by browser security policy. Gameplay is enabled via keyboard.");
         }
-    }, 2000);
+    }, 1000);
 
     // Prevent context menu
     document.addEventListener('contextmenu', function (event) {
