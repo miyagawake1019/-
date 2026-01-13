@@ -1,37 +1,33 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minecraft Clone</title>
+    <title>マウンテンバイクゲーム</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="crosshair"></div>
+    <div id="crosshair" style="display:none;"></div> <!-- Hide crosshair as it's not needed for biking -->
     <div id="error-message" style="display: none; position: absolute; top: 10%; left: 50%; transform: translateX(-50%); background: red; color: white; padding: 20px; z-index: 1000; text-align: center;">
         <p>エラー: スクリプトが読み込めませんでした。</p>
         <p>ローカルサーバーを使用してください (例: python -m http.server)</p>
         <p>Error: Script failed to load. Please use a local server.</p>
     </div>
     <div id="instructions">
-        <h1>Minecraft Clone</h1>
-        <p>エンターまたはクリックして開始</p>
-        <p>(1秒後に自動開始)</p>
-        <p>上: 前進 | 下: 後退</p>
-        <p>左/右: 回転</p>
-        <p>上+下: ジャンプ</p>
-        <p>スペース: 攻撃</p>
-        <p>右クリック: ブロック配置</p>
+        <h1>マウンテンバイクゲーム</h1>
+        <p>クリックして開始</p>
+        <p>------------------</p>
+        <p>上矢印: 加速</p>
+        <p>下矢印: バック / ブレーキ</p>
+        <p>左矢印: 左に曲がる</p>
+        <p>右矢印: 右に曲がる</p>
+        <p>楽しい木のコースで遊ぼう！</p>
+        <p>でっかいジャンプ台もあるよ！</p>
     </div>
     <script>
         window.addEventListener('error', function(e) {
-            // Check if the error is related to module loading (simplified check)
-            // Or simply show the error if the game doesn't start
             console.error("Global error caught:", e.message);
-            // If the error message suggests a script load failure or if body is not populated
-            // But 'error' on window usually catches execution errors.
-            // 'error' on script tags is better for load failures.
-        }, true); // Use capture to catch resource loading errors
+        }, true);
     </script>
     <script type="importmap">
         {
