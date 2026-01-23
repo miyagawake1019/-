@@ -5,14 +5,14 @@ let camera, scene, renderer;
 let bike, bikeGroup;
 let raycaster;
 let obstacles = [];
-let boostPads = []; // Array to store boost pad objects
+let boostPads = [];
 
 // Physics variables
 let speed = 0;
 let maxSpeed = 3.0;
-let acceleration = 0.05;
-let friction = 0.02;
-let turnSpeed = 0.05;
+let acceleration = 0.08;
+let friction = 0.05;
+let turnSpeed = 0.06;
 let gravity = 0.8;
 let verticalVelocity = 0;
 let isGrounded = false;
@@ -82,19 +82,21 @@ function init() {
 function createBike() {
     bikeGroup = new THREE.Group();
 
-    const frameGeo = new THREE.BoxGeometry(1.5, 0.5, 3);
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+    // 1. Frame
+    const frameGeo = new THREE.BoxGeometry(1.0, 0.5, 2.5);
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
     const frame = new THREE.Mesh(frameGeo, frameMat);
     frame.castShadow = true;
     frame.position.y = 0.5;
     bikeGroup.add(frame);
 
+    // 2. Wheels
     const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.4, 32);
     const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
 
     const wheels = [
-        { x: -1, z: -1.2 }, { x: 1, z: -1.2 },
-        { x: -1, z: 1.2 }, { x: 1, z: 1.2 }
+        { x: -0.8, z: -1.2 }, { x: 0.8, z: -1.2 },
+        { x: -0.8, z: 1.2 }, { x: 0.8, z: 1.2 }
     ];
 
     wheels.forEach(pos => {
@@ -105,13 +107,54 @@ function createBike() {
         bikeGroup.add(w);
     });
 
-    const riderGeo = new THREE.BoxGeometry(0.8, 1.2, 0.8);
-    const riderMat = new THREE.MeshStandardMaterial({ color: 0x0000ff });
-    const rider = new THREE.Mesh(riderGeo, riderMat);
-    rider.position.set(0, 1.6, 0);
-    bikeGroup.add(rider);
+    // 3. Roblox Noob Avatar
+    // Legs (Green)
+    const legGeo = new THREE.BoxGeometry(0.4, 0.8, 0.4);
+    const legMat = new THREE.MeshStandardMaterial({ color: 0x00FF00 });
 
-    camera.position.set(0, 5, 12);
+    const leftLeg = new THREE.Mesh(legGeo, legMat);
+    leftLeg.position.set(-0.25, 1.2, 0);
+    leftLeg.castShadow = true;
+    bikeGroup.add(leftLeg);
+
+    const rightLeg = new THREE.Mesh(legGeo, legMat);
+    rightLeg.position.set(0.25, 1.2, 0);
+    rightLeg.castShadow = true;
+    bikeGroup.add(rightLeg);
+
+    // Torso (Blue)
+    const torsoGeo = new THREE.BoxGeometry(1.0, 1.0, 0.5);
+    const torsoMat = new THREE.MeshStandardMaterial({ color: 0x0000FF });
+    const torso = new THREE.Mesh(torsoGeo, torsoMat);
+    torso.position.set(0, 2.1, 0);
+    torso.castShadow = true;
+    bikeGroup.add(torso);
+
+    // Head (Yellow)
+    const headGeo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xFFFF00 });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.set(0, 2.9, 0);
+    head.castShadow = true;
+    bikeGroup.add(head);
+
+    // Arms (Yellow)
+    const armGeo = new THREE.BoxGeometry(0.3, 0.9, 0.3);
+    const armMat = new THREE.MeshStandardMaterial({ color: 0xFFFF00 });
+
+    const leftArm = new THREE.Mesh(armGeo, armMat);
+    leftArm.position.set(-0.7, 2.1, 0);
+    leftArm.castShadow = true;
+    bikeGroup.add(leftArm);
+
+    const rightArm = new THREE.Mesh(armGeo, armMat);
+    rightArm.position.set(0.7, 2.1, 0);
+    rightArm.castShadow = true;
+    bikeGroup.add(rightArm);
+
+
+    // Camera
+    camera.position.set(0, 5, 10);
     camera.lookAt(0, 2, 0);
 
     bikeGroup.add(camera);
@@ -125,46 +168,59 @@ function createCourse() {
     obstacles = [];
     boostPads = [];
 
-    const roadColor = 0x333333;
-    const roadMaterial = new THREE.MeshStandardMaterial({ color: roadColor });
-    const boostMaterial = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xff4400, emissiveIntensity: 0.5 });
-    const startLineMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    // Roblox-style Plastic Materials
+    const matRed = new THREE.MeshStandardMaterial({ color: 0xFF0000, roughness: 0.3, metalness: 0.1 });
+    const matBlue = new THREE.MeshStandardMaterial({ color: 0x0000FF, roughness: 0.3, metalness: 0.1 });
+    const matGreen = new THREE.MeshStandardMaterial({ color: 0x00FF00, roughness: 0.3, metalness: 0.1 });
+    const matYellow = new THREE.MeshStandardMaterial({ color: 0xFFFF00, roughness: 0.3, metalness: 0.1 });
+    const matWhite = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.3, metalness: 0.1 });
+    const matBoost = new THREE.MeshStandardMaterial({ color: 0xFFA500, emissive: 0xFF4400, emissiveIntensity: 0.6 });
+
     const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55 });
 
     const groundGeo = new THREE.PlaneGeometry(5000, 5000);
     const ground = new THREE.Mesh(groundGeo, grassMaterial);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -20;
+    ground.position.y = -50; // Far below
     ground.receiveShadow = true;
     scene.add(ground);
 
     let currentPos = new THREE.Vector3(0, 0, 0);
     let currentDir = new THREE.Vector3(0, 0, -1);
-    const trackWidth = 25;
 
-    function addSegment(length, slope = 0, isBoost = false, isStart = false) {
-        const segCenter = currentPos.clone().add(currentDir.clone().multiplyScalar(length / 2));
+    // Helper Functions
+    function addBox(length, width, height, material, slope = 0) {
+        // Calculate center based on currentPos being the *start* of the segment
+        // We want the box to extend 'length' along currentDir.
+
+        const halfLen = length / 2;
+        const center = currentPos.clone().add(currentDir.clone().multiplyScalar(halfLen));
+
+        // Slope adjustment
         const dy = Math.sin(slope) * length;
-        segCenter.y += dy / 2;
+        center.y += dy / 2;
 
-        const mat = isStart ? startLineMaterial : (isBoost ? boostMaterial : roadMaterial);
+        const geo = new THREE.BoxGeometry(width, height, length);
+        const mesh = new THREE.Mesh(geo, material);
+        mesh.position.copy(center);
 
-        // Note: -slope for X rotation makes the local Z tip UP.
-        // With currentDir facing -Z (North), PI rotation Y aligns local Z to North.
-        // So the ramp goes UP towards North. Correct.
-        const box = createBoxRotated(
-            segCenter.x, segCenter.y, segCenter.z,
-            trackWidth, 2, length,
-            mat,
-            Math.atan2(currentDir.x, currentDir.z),
-            -slope
-        );
+        // Rotation
+        mesh.rotation.y = Math.atan2(currentDir.x, currentDir.z);
+        mesh.rotation.x = -slope;
 
-        if (isBoost) boostPads.push(box);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        obstacles.push(mesh);
 
+        // Return object for special tagging (boost)
+        const obj = mesh;
+
+        // Update currentPos to end of segment
         currentPos.add(currentDir.clone().multiplyScalar(length));
         currentPos.y += dy;
-        return box;
+
+        return obj;
     }
 
     function turn(angleDegrees) {
@@ -177,50 +233,68 @@ function createCourse() {
         currentPos.add(currentDir.clone().multiplyScalar(length));
     }
 
-    // --- Course Design ---
-    addSegment(20, 0, false, true);
-    addSegment(100);
-    addSegment(30, 0, true);
-    addSegment(100, 0.4);
+    // === OBBY STAGE 1: THE START ===
+    // Safe zone
+    addBox(20, 20, 2, matGreen);
 
-    turn(45);
-    addSegment(50);
-    turn(45);
-    addSegment(50);
+    // === STAGE 2: THE DROP ===
+    // Steep red ramp
+    addBox(60, 10, 2, matRed, -0.5); // Downhill
 
-    turn(10);
-    addSegment(100, -0.5, true);
+    // Recovery platform
+    addBox(30, 15, 2, matBlue);
 
-    // Jump Section
-    // Ramp up (Kicker). Made it slightly longer and steeper for better launch feel with new physics.
-    addSegment(30, 0.4);
-    addGap(40); // The gap
+    // === STAGE 3: THE BALANCE BEAM ===
+    // Narrow yellow beam
+    turn(20);
+    addBox(50, 4, 1, matYellow); // 4 wide is risky but doable
 
-    // Landing. Started slightly lower (-2) to help catching the landing.
-    currentPos.y -= 2;
-    addSegment(50, -0.1);
+    turn(-40);
+    addBox(50, 3, 1, matYellow); // 3 wide, harder
 
-    turn(-90);
-    addSegment(40);
-    turn(-90);
-    addSegment(40);
-    turn(-90);
-    addSegment(40);
-    turn(-90);
+    // === STAGE 4: ISLAND HOPS ===
+    // Platform
+    turn(20);
+    addBox(20, 10, 2, matGreen);
 
-    addSegment(60);
-    turn(30);
-    addSegment(60);
-    turn(-60);
-    addSegment(60);
-    turn(30);
-    addSegment(60);
+    // Gap 1
+    addGap(15);
+    addBox(15, 10, 2, matBlue);
 
-    addSegment(50, 0, true);
-    addSegment(50, 0, false, true);
+    // Gap 2 (Higher)
+    addGap(15);
+    currentPos.y += 5; // Step up
+    addBox(15, 10, 2, matRed);
+
+    // Gap 3 (Long)
+    addGap(25);
+    currentPos.y -= 2; // Step down
+    addBox(20, 10, 2, matGreen);
+
+    // === STAGE 5: MEGA RAMP ===
+    // Run up
+    addBox(40, 10, 2, matWhite);
+
+    // Boost Pad
+    const pad = addBox(20, 10, 2, matBoost);
+    boostPads.push(pad);
+
+    // Ramp
+    addBox(60, 10, 2, matRed, 0.5); // Steep up
+
+    // Big Air Gap
+    addGap(80);
+
+    // Landing Zone
+    currentPos.y -= 10;
+    addBox(60, 30, 5, matBlue, -0.1);
+
+    // Winner Podium
+    addBox(30, 30, 10, matYellow);
 }
 
 function createBoxRotated(x, y, z, w, h, d, material, rotY, rotX) {
+    // Deprecated by internal helper but keeping signature if needed
     const geo = new THREE.BoxGeometry(w, h, d);
     const mesh = new THREE.Mesh(geo, material);
     mesh.position.set(x, y, z);
@@ -289,13 +363,13 @@ function animate() {
     if (speed > currentMaxSpeed) speed = currentMaxSpeed;
     if (speed < -currentMaxSpeed / 2) speed = -currentMaxSpeed / 2;
 
-    if (speed !== 0) {
-        if (rotateLeft) bikeGroup.rotation.y += turnSpeed;
-        if (rotateRight) bikeGroup.rotation.y -= turnSpeed;
+    // Handle Rotation (Allowed always for arcade feel / air control)
+    if (rotateLeft) bikeGroup.rotation.y += turnSpeed;
+    if (rotateRight) bikeGroup.rotation.y -= turnSpeed;
 
-        const targetBank = (rotateLeft ? 0.3 : (rotateRight ? -0.3 : 0));
-        bikeGroup.rotation.z = THREE.MathUtils.lerp(bikeGroup.rotation.z, targetBank, 0.1);
-    }
+    // Bank angle
+    const targetBank = (rotateLeft ? 0.3 : (rotateRight ? -0.3 : 0));
+    bikeGroup.rotation.z = THREE.MathUtils.lerp(bikeGroup.rotation.z, targetBank, 0.1);
 
     const forwardX = -Math.sin(bikeGroup.rotation.y);
     const forwardZ = -Math.cos(bikeGroup.rotation.y);
@@ -334,21 +408,14 @@ function animate() {
         isGrounded = true;
 
         // Calculate vertical boost from slope
-        // If we are moving forward, check the height difference
         if (Math.abs(speed) > 0.1) {
              const dy = groundHeight - prevGroundHeight;
-             // If dy is positive and large, we are ramping up.
-             // Impart this as vertical velocity.
-             // We smooth it slightly or just take it if it's an upward launch?
-             // Actually, while on ground, our vertical velocity IS the rate of climb.
-             // V_y = dy / dt.
              const climbRate = dy / dt;
 
-             // If we are climbing, set positive verticalVelocity so if we lose ground we fly.
              if (climbRate > 0) {
                  verticalVelocity = climbRate;
              } else {
-                 verticalVelocity = 0; // Don't carry downward momentum into a fall unless gravity does it
+                 verticalVelocity = 0;
              }
         } else {
              verticalVelocity = 0;
@@ -376,7 +443,7 @@ function animate() {
         timeSinceLastSafe = 0;
     }
 
-    if (bikeGroup.position.y < -10) {
+    if (bikeGroup.position.y < -30) {
         bikeGroup.position.copy(lastSafePosition);
         speed = 0;
         verticalVelocity = 0;
